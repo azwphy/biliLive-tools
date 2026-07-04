@@ -891,10 +891,11 @@ export class WebhookHandler {
   private async mergeVideosTask(
     inputFiles: string[],
   ): Promise<string> {
-    const result = await mergeVideos(inputFiles, {
-      saveOriginPath: true,
-      removeOrigin: false,
-    });
+      const result = await mergeVideos(inputFiles, {
+        saveOriginPath: true,
+        removeOrigin: false,
+        keepFirstVideoMeta: false,
+      });
 
     return new Promise((resolve, reject) => {
       result.task.on("task-end", () => {
