@@ -401,6 +401,19 @@
     >
   </n-form-item>
 
+  <n-form-item>
+    <template #label>
+      <Tip text="上传前合并视频" tip="开启后，会在上传前将同一场直播的多段视频合并为一个文件"></Tip>
+    </template>
+    <n-switch v-model:value="data.autoMergeVideo" :disabled="globalFieldsObj.autoMergeVideo" />
+    <n-checkbox
+      v-if="isRoom"
+      v-model:checked="globalFieldsObj.autoMergeVideo"
+      class="global-checkbox"
+      >全局</n-checkbox
+    >
+  </n-form-item>
+
   <template v-if="data.autoPartMerge">
     <n-form-item>
       <template #label>
@@ -612,6 +625,7 @@ const data = defineModel<AppRoomConfig>("data", {
     title: "",
     danmu: false,
     autoPartMerge: false,
+    autoMergeVideo: false,
     hotProgress: false,
     useLiveCover: false,
     partTitleTemplate: "",

@@ -680,6 +680,7 @@ const globalFields = ref([
   "ffmpegPreset",
   "danmuPreset",
   "autoPartMerge",
+  "autoMergeVideo",
   "partMergeMinute",
   "hotProgressSample",
   "hotProgressHeight",
