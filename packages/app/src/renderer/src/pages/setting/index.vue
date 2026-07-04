@@ -749,6 +749,7 @@ const tempRoomDetail = ref<AppRoomConfig & { id?: string }>({
   danmuPreset: undefined,
   autoPartMerge: false,
   partMergeMinute: 10,
+  autoMergeVideo: false,
   hotProgress: false,
   useLiveCover: false,
   hotProgressSample: 30,
