@@ -14,6 +14,7 @@ import {
   trashItem,
   formatTitle,
   formatPartTitle,
+  formatDesc,
   buildRoomLink,
 } from "@biliLive-tools/shared/utils/index.js";
 
@@ -1416,6 +1417,20 @@ export class WebhookHandler {
 
     if (config.useLiveCover && cover) {
       uploadPreset.cover = cover;
+    }
+
+    // 格式化简介占位符（与 formatUploadTitle 对称处理）
+    if (uploadPreset.desc && uploadPreset.desc.includes("{{")) {
+      uploadPreset.desc = formatDesc(
+        {
+          title: live.title || "",
+          username: live.username || "",
+          time: new Date(live.startTime).toISOString(),
+          roomId: live.roomId,
+          filename: "",
+        },
+        uploadPreset.desc,
+      );
     }
 
     // 处理转载来源：当设置为转载类型且转载来源为空时，自动生成直播间链接

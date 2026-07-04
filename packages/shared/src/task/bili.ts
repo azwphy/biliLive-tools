@@ -623,6 +623,17 @@ async function preFormatOptions(
       } catch (e) {
         log.error("格式化简介失败", e);
       }
+    } else {
+      log.warn(
+        "简介包含占位符但元数据解析不完整，占位符将保留原文",
+        "needParseForDesc, missing fields:",
+        {
+          title: !!parseResult.title,
+          username: !!parseResult.username,
+          roomId: !!parseResult.roomId,
+          startTimestamp: !!parseResult.startTimestamp,
+        },
+      );
     }
   }
 
