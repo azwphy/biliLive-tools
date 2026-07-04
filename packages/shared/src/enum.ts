@@ -60,6 +60,7 @@ export const APP_DEFAULT_CONFIG: AppConfig = {
     afterConvertAction: [],
     autoPartMerge: false,
     partMergeMinute: 10,
+    autoMergeVideo: false,
     hotProgress: false,
     useLiveCover: false,
     partTitleTemplate: "{{filename}}",

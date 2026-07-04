@@ -107,6 +107,8 @@ export type CommonRoomConfig = {
   danmuPreset?: string | null;
   autoPartMerge: boolean;
   partMergeMinute?: number;
+  /** 上传前自动合并多段视频为一个文件 */
+  autoMergeVideo: boolean;
   uid?: number;
   /** 生成高能进度条 */
   hotProgress: boolean;

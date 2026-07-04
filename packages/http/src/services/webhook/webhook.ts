@@ -5,7 +5,7 @@ import { FFmpegPreset, VideoPreset, DanmuPreset } from "@biliLive-tools/shared";
 import { DEFAULT_BILIUP_CONFIG } from "@biliLive-tools/shared/presets/videoPreset.js";
 import { biliApi } from "@biliLive-tools/shared/task/bili.js";
 import { isEmptyDanmu, convertXml2Ass } from "@biliLive-tools/shared/task/danmu.js";
-import { transcode, burn, analyzeResolutionChanges } from "@biliLive-tools/shared/task/video.js";
+import { transcode, burn, analyzeResolutionChanges, mergeVideos, checkMergeVideos } from "@biliLive-tools/shared/task/video.js";
 import { flvRepair } from "@biliLive-tools/shared/task/flvRepair.js";
 import log from "@biliLive-tools/shared/utils/log.js";
 import {
@@ -884,6 +884,108 @@ export class WebhookHandler {
     });
   };
 
+  /**
+   * 合并多个视频文件，等待任务完成
+   */
+  private async mergeVideosTask(
+    inputFiles: string[],
+  ): Promise<string> {
+    const result = await mergeVideos(inputFiles, {
+      saveOriginPath: true,
+      removeOrigin: false,
+    });
+
+    return new Promise((resolve, reject) => {
+      result.task.on("task-end", () => {
+        resolve(result.task.output as string);
+      });
+      result.task.on("task-error", ({ error }) => {
+        reject(new Error(error));
+      });
+      result.task.on("task-cancel", () => {
+        reject(new Error("Merge task cancelled"));
+      });
+    });
+  }
+
+  /**
+   * 合并 Live 的所有 Part 文件，为单文件上传做准备
+   */
+  private async mergePartsAndPrepareForUpload(live: Live) {
+    const parts = live.parts.filter(
+      (p) => !p.isError() && p.recordStatus !== "recording",
+    );
+    if (parts.length < 2) return;
+
+    // 合并弹幕版（handled）文件
+    const handledParts = parts.filter(
+      (p) => p.isFullyHandled() && p.uploadStatus !== "uploaded",
+    );
+    if (handledParts.length >= 2) {
+      await this.mergeSpecificParts(live, handledParts, "handled");
+    }
+
+    // 合并原始版（raw）文件
+    const config = this.configManager.getConfig(live.roomId);
+    if (config.uploadNoDanmu) {
+      const rawParts = parts.filter(
+        (p) =>
+          p.rawUploadStatus !== "uploaded" && p.recordStatus !== "recording",
+      );
+      if (rawParts.length >= 2) {
+        await this.mergeSpecificParts(live, rawParts, "raw");
+      }
+    }
+  }
+
+  /**
+   * 合并指定类型的 Part 文件
+   */
+  private async mergeSpecificParts(
+    live: Live,
+    parts: Part[],
+    type: "handled" | "raw",
+  ) {
+    const filePathField = type === "handled" ? "filePath" : "rawFilePath";
+    const inputFiles = parts.map((p) => p[filePathField] as string);
+
+    // 前置校验：编码器/分辨率一致性
+    try {
+      const { errors } = await checkMergeVideos(inputFiles);
+      if (errors.length > 0) {
+        log.warn(
+          `[autoMergeVideo] 视频合并兼容性检查失败: ${errors.join(", ")}`,
+        );
+        return;
+      }
+    } catch (error) {
+      log.warn("[autoMergeVideo] 合并兼容性检查异常:", error);
+      return;
+    }
+
+    try {
+      const mergedFile = await this.mergeVideosTask(inputFiles);
+
+      // 第一个 Part 使用合并后的文件路径
+      const firstPart = parts[0];
+      firstPart.updateValue(filePathField, mergedFile);
+
+      // 其余 Part 标记为已上传，跳过上传
+      for (let i = 1; i < parts.length; i++) {
+        const statusField =
+          type === "handled" ? "uploadStatus" : "rawUploadStatus";
+        // @ts-ignore
+        parts[i].updateValue(statusField, "uploaded");
+      }
+
+      log.info(
+        `[autoMergeVideo] ${type} 文件合并完成: ${mergedFile}, 共合并 ${inputFiles.length} 个文件`,
+      );
+    } catch (error) {
+      log.error(`[autoMergeVideo] ${type} 文件合并失败:`, error);
+    }
+  }
+
   convertDanmu = async (
     xmlFilePath: string,
     danmuConfig: DanmuConfig,
@@ -1641,6 +1743,11 @@ export class WebhookHandler {
    */
   handleLive = async (live: Live, type?: "handled" | "raw") => {
     const config = this.configManager.getConfig(live.roomId);
+
+    // autoMergeVideo: 上传前自动合并多段视频
+    if (config.autoMergeVideo) {
+      await this.mergePartsAndPrepareForUpload(live);
+    }
 
     if (this.isSameMediaUploadEnabled(config)) {
       await this.uploadVideoToSameMedia(live, config);

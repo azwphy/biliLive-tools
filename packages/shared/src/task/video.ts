@@ -1333,6 +1333,7 @@ export const mergeVideos = async (
     status: "success",
     text: "添加到任务队列",
     taskId: task.taskId,
+    task,
   };
 };
 

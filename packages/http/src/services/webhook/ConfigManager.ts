@@ -80,6 +80,7 @@ export interface RoomConfig {
   afterConvertRemoveXmlRaw: boolean;
   afterConvertRemoveVideoRaw: boolean;
   roomId: string;
+  autoMergeVideo: boolean;
 }
 
 /**
@@ -242,6 +243,7 @@ export class ConfigManager {
       afterConvertRemoveXmlRaw,
       afterConvertRemoveVideoRaw,
       roomId,
+      autoMergeVideo: this.getRoomSetting("autoMergeVideo", roomSetting) ?? false,
     };
   }
 
