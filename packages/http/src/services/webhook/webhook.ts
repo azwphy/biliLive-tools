@@ -894,6 +894,7 @@ export class WebhookHandler {
     const result = await mergeVideos(inputFiles, {
       saveOriginPath: true,
       removeOrigin: false,
+      keepFirstVideoMeta: false,
     });
 
     return new Promise((resolve, reject) => {
@@ -923,7 +924,7 @@ export class WebhookHandler {
       (p) => p.isFullyHandled() && p.uploadStatus !== "uploaded",
     );
     if (handledParts.length >= 2) {
-      await this.mergeSpecificParts(live, handledParts, "handled");
+      await this.mergeSpecificParts(handledParts, "handled");
     }
 
     // 合并原始版（raw）文件
@@ -934,7 +935,7 @@ export class WebhookHandler {
           p.rawUploadStatus !== "uploaded" && p.recordStatus !== "recording",
       );
       if (rawParts.length >= 2) {
-        await this.mergeSpecificParts(live, rawParts, "raw");
+        await this.mergeSpecificParts(rawParts, "raw");
       }
     }
   }
@@ -943,7 +944,6 @@ export class WebhookHandler {
    * 合并指定类型的 Part 文件
    */
   private async mergeSpecificParts(
-    live: Live,
     parts: Part[],
     type: "handled" | "raw",
   ) {
