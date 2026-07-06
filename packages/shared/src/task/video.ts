@@ -1324,6 +1324,11 @@ export const mergeVideos = async (
       },
       onError: async () => {
         fs.remove(fileTxtPath);
+        if (outputFile) {
+          fs.remove(outputFile).catch((e) =>
+            log.error(`合并失败，清理输出文件失败: ${outputFile}`, e),
+          );
+        }
       },
     },
   );
