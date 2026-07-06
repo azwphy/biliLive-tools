@@ -963,7 +963,6 @@ export class WebhookHandler {
 
       // 第一个 Part 使用合并后的文件路径
       const firstPart = parts[0];
-      const originalFirstFile = firstPart[filePathField] as string;
       firstPart.updateValue(filePathField, mergedFile);
 
       // 其余 Part 标记为已上传，跳过上传
@@ -984,7 +983,7 @@ export class WebhookHandler {
       }
 
       // 管理文件引用：将原始文件的引用转移到合并文件
-      await this.transferFileRefsAfterMerge(inputFiles, mergedFile, originalFirstFile, config);
+      await this.transferFileRefsAfterMerge(inputFiles, mergedFile, config);
 
       log.info(
         `[autoMergeVideo] ${type} 文件合并完成: ${mergedFile}, 共合并 ${inputFiles.length} 个文件`,
@@ -1000,7 +999,6 @@ export class WebhookHandler {
   private async transferFileRefsAfterMerge(
     originalFiles: string[],
     mergedFile: string,
-    firstOriginalFile: string,
     config: RoomConfig,
   ) {
     // 为合并文件添加与已处理后视频相同的引用
