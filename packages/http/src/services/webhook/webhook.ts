@@ -5,7 +5,13 @@ import { FFmpegPreset, VideoPreset, DanmuPreset } from "@biliLive-tools/shared";
 import { DEFAULT_BILIUP_CONFIG } from "@biliLive-tools/shared/presets/videoPreset.js";
 import { biliApi } from "@biliLive-tools/shared/task/bili.js";
 import { isEmptyDanmu, convertXml2Ass } from "@biliLive-tools/shared/task/danmu.js";
-import { transcode, burn, analyzeResolutionChanges, mergeVideos, checkMergeVideos } from "@biliLive-tools/shared/task/video.js";
+import {
+  transcode,
+  burn,
+  analyzeResolutionChanges,
+  mergeVideos,
+  checkMergeVideos,
+} from "@biliLive-tools/shared/task/video.js";
 import { flvRepair } from "@biliLive-tools/shared/task/flvRepair.js";
 import log from "@biliLive-tools/shared/utils/log.js";
 import {
@@ -888,9 +894,7 @@ export class WebhookHandler {
   /**
    * 合并多个视频文件，等待任务完成
    */
-  private async mergeVideosTask(
-    inputFiles: string[],
-  ): Promise<string> {
+  private async mergeVideosTask(inputFiles: string[]): Promise<string> {
     const result = await mergeVideos(inputFiles, {
       saveOriginPath: true,
       removeOrigin: false,
@@ -914,28 +918,23 @@ export class WebhookHandler {
    * 合并 Live 的所有 Part 文件，为单文件上传做准备
    */
   private async mergePartsAndPrepareForUpload(live: Live) {
-    const parts = live.parts.filter(
-      (p) => !p.isError() && p.recordStatus !== "recording",
-    );
+    const config = this.configManager.getConfig(live.roomId);
+    const parts = live.parts.filter((p) => !p.isError() && p.recordStatus !== "recording");
     if (parts.length < 2) return;
 
     // 合并弹幕版（handled）文件
-    const handledParts = parts.filter(
-      (p) => p.isFullyHandled() && p.uploadStatus !== "uploaded",
-    );
+    const handledParts = parts.filter((p) => p.isFullyHandled() && p.uploadStatus !== "uploaded");
     if (handledParts.length >= 2) {
-      await this.mergeSpecificParts(handledParts, "handled");
+      await this.mergeSpecificParts(handledParts, "handled", config);
     }
 
     // 合并原始版（raw）文件
-    const config = this.configManager.getConfig(live.roomId);
     if (config.uploadNoDanmu) {
       const rawParts = parts.filter(
-        (p) =>
-          p.rawUploadStatus !== "uploaded" && p.recordStatus !== "recording",
+        (p) => p.rawUploadStatus !== "uploaded" && p.recordStatus !== "recording",
       );
       if (rawParts.length >= 2) {
-        await this.mergeSpecificParts(rawParts, "raw");
+        await this.mergeSpecificParts(rawParts, "raw", config);
       }
     }
   }
@@ -943,10 +942,7 @@ export class WebhookHandler {
   /**
    * 合并指定类型的 Part 文件
    */
-  private async mergeSpecificParts(
-    parts: Part[],
-    type: "handled" | "raw",
-  ) {
+  private async mergeSpecificParts(parts: Part[], type: "handled" | "raw", config: RoomConfig) {
     const filePathField = type === "handled" ? "filePath" : "rawFilePath";
     const inputFiles = parts.map((p) => p[filePathField] as string);
 
@@ -954,9 +950,7 @@ export class WebhookHandler {
     try {
       const { errors } = await checkMergeVideos(inputFiles);
       if (errors.length > 0) {
-        log.warn(
-          `[autoMergeVideo] 视频合并兼容性检查失败: ${errors.join(", ")}`,
-        );
+        log.warn(`[autoMergeVideo] 视频合并兼容性检查失败: ${errors.join(", ")}`);
         return;
       }
     } catch (error) {
@@ -969,21 +963,61 @@ export class WebhookHandler {
 
       // 第一个 Part 使用合并后的文件路径
       const firstPart = parts[0];
+      const originalFirstFile = firstPart[filePathField] as string;
       firstPart.updateValue(filePathField, mergedFile);
 
       // 其余 Part 标记为已上传，跳过上传
       for (let i = 1; i < parts.length; i++) {
-        const statusField =
-          type === "handled" ? "uploadStatus" : "rawUploadStatus";
+        const statusField = type === "handled" ? "uploadStatus" : "rawUploadStatus";
         // @ts-ignore
         parts[i].updateValue(statusField, "uploaded");
       }
+
+      // 将后续 Part 的元数据补充到第一个 Part（封面、标题）
+      for (let i = 1; i < parts.length; i++) {
+        if (!firstPart.cover && parts[i].cover) {
+          firstPart.updateValue("cover", parts[i].cover);
+        }
+        if (!firstPart.title && parts[i].title) {
+          firstPart.updateValue("title", parts[i].title);
+        }
+      }
+
+      // 管理文件引用：将原始文件的引用转移到合并文件
+      await this.transferFileRefsAfterMerge(inputFiles, mergedFile, originalFirstFile, config);
 
       log.info(
         `[autoMergeVideo] ${type} 文件合并完成: ${mergedFile}, 共合并 ${inputFiles.length} 个文件`,
       );
     } catch (error) {
       log.error(`[autoMergeVideo] ${type} 文件合并失败:`, error);
+    }
+  }
+
+  /**
+   * 合并后转移文件引用：原始文件引用归零（可被清理），合并文件注册为新引用
+   */
+  private async transferFileRefsAfterMerge(
+    originalFiles: string[],
+    mergedFile: string,
+    firstOriginalFile: string,
+    config: RoomConfig,
+  ) {
+    // 为合并文件添加与已处理后视频相同的引用
+    if (config.uid) {
+      const shouldRemove =
+        config.afterUploadDeletAction === "delete" ||
+        config.afterUploadDeletAction === "deleteAfterCheck";
+
+      this.fileRefManager.addRef(mergedFile, shouldRemove);
+      if (config.afterUploadDeletAction === "deleteAfterCheck") {
+        this.fileRefManager.addRef(mergedFile, shouldRemove);
+      }
+    }
+
+    // 释放所有原始文件的引用
+    for (const file of originalFiles) {
+      await this.fileRefManager.clearAllRefs(file);
     }
   }
 
@@ -1214,7 +1248,7 @@ export class WebhookHandler {
 
     // 构建上传文件列表
     for (const part of uploadableParts) {
-      const filename = path.parse(part[filePathField]).name;
+      const filename = path.parse(part[filePathField]).name.replace(/-合并$/, "");
       const title = formatPartTitle(
         {
           title: part.title,
@@ -1323,7 +1357,7 @@ export class WebhookHandler {
         if (item.status === "uploaded" || item.status === "error") continue;
         if (!item.canUpload) continue;
 
-        const filename = path.parse(item.path).name;
+        const filename = path.parse(item.path).name.replace(/-合并$/, "");
         const baseTitle = formatPartTitle(
           {
             title: part.title,
@@ -1761,6 +1795,10 @@ export class WebhookHandler {
 
     // autoMergeVideo: 上传前自动合并多段视频
     if (config.autoMergeVideo) {
+      // 等待所有分段录制和处理完成，避免逐个分P上传导致合并窗口丢失
+      if (live.hasRecordingParts() || !live.areAllPartsHandled()) {
+        return;
+      }
       await this.mergePartsAndPrepareForUpload(live);
     }
 

@@ -107,6 +107,22 @@ class FileRefManager {
   }
 
   /**
+   * 清除指定文件的所有引用（立即归零，触发删除检查）
+   */
+  async clearAllRefs(filePath: string): Promise<void> {
+    const ref = this.refs.get(filePath);
+    if (!ref) return;
+    this.refs.delete(filePath);
+    if (ref.shouldDelete) {
+      try {
+        await trashItem(filePath);
+      } catch (error) {
+        log.error(`删除文件失败: ${filePath}`, error);
+      }
+    }
+  }
+
+  /**
    * 清空所有引用（用于测试）
    */
   clear(): void {

@@ -2741,6 +2741,194 @@ describe("WebhookHandler", () => {
       expect(live.parts[0].uploadStatus).toBe("uploaded");
       expect(live.parts[1].uploadStatus).toBe("uploaded");
     });
+
+    it("autoMergeVideo 启用但有Part仍在录制时跳过上传", async () => {
+      const appConfig = {
+        getAll: vi.fn().mockReturnValue({
+          task: { ffmpegMaxNum: -1, douyuDownloadMaxNum: -1, biliUploadMaxNum: -1 },
+        }),
+      };
+      // @ts-ignore
+      webhookHandler = new WebhookHandler(appConfig);
+
+      const live = new Live({
+        platform: "bili-recorder",
+        roomId: "123",
+        startTime: new Date("2022-01-01T00:00:00Z").getTime(),
+        title: "Test",
+        username: "user",
+      });
+      live.addPart({
+        startTime: new Date("2022-01-01T00:00:00Z").getTime(),
+        filePath: "/path/to/video1.mp4",
+        recordStatus: "handled",
+        uploadStatus: "pending",
+        title: "Part 1",
+      });
+      // 第二个 Part 仍在录制中
+      live.addPart({
+        startTime: new Date("2022-01-01T00:30:00Z").getTime(),
+        filePath: "/path/to/video2.mp4",
+        recordStatus: "recording",
+        uploadStatus: "pending",
+        title: "Part 2",
+      });
+
+      // @ts-ignore
+      vi.spyOn(webhookHandler.configManager, "getConfig").mockReturnValue({
+        uid: 123,
+        uploadPresetId: "preset-1",
+        uploadNoDanmu: false,
+        autoMergeVideo: true,
+        useLiveCover: false,
+        limitUploadTime: false,
+        uploadHandleTime: ["00:00:00", "23:59:59"],
+        partTitleTemplate: "{{filename}}",
+        afterUploadDeletAction: "none",
+        title: "Test {{user}}",
+      });
+
+      const addUploadTaskSpy = vi.spyOn(webhookHandler, "addUploadTask").mockResolvedValue(456);
+
+      await webhookHandler.handleLive(live);
+
+      // 因为有 Part 在录制中，不应执行上传
+      expect(addUploadTaskSpy).not.toHaveBeenCalled();
+      // mergeVideos 也不应被调用
+      expect(videoTask.mergeVideos).not.toHaveBeenCalled();
+      // Part 状态应保持不变
+      expect(live.parts[0].uploadStatus).toBe("pending");
+    });
+
+    it("autoMergeVideo 启用且有Part未处理完成时跳过上传", async () => {
+      const appConfig = {
+        getAll: vi.fn().mockReturnValue({
+          task: { ffmpegMaxNum: -1, douyuDownloadMaxNum: -1, biliUploadMaxNum: -1 },
+        }),
+      };
+      // @ts-ignore
+      webhookHandler = new WebhookHandler(appConfig);
+
+      const live = new Live({
+        platform: "bili-recorder",
+        roomId: "123",
+        startTime: new Date("2022-01-01T00:00:00Z").getTime(),
+        title: "Test",
+        username: "user",
+      });
+      live.addPart({
+        startTime: new Date("2022-01-01T00:00:00Z").getTime(),
+        filePath: "/path/to/video1.mp4",
+        recordStatus: "handled",
+        uploadStatus: "pending",
+        title: "Part 1",
+      });
+      // 第二个 Part 录制完成但未处理（如转码中）
+      live.addPart({
+        startTime: new Date("2022-01-01T00:30:00Z").getTime(),
+        filePath: "/path/to/video2.mp4",
+        recordStatus: "recorded",
+        uploadStatus: "pending",
+        title: "Part 2",
+      });
+
+      // @ts-ignore
+      vi.spyOn(webhookHandler.configManager, "getConfig").mockReturnValue({
+        uid: 123,
+        uploadPresetId: "preset-1",
+        uploadNoDanmu: false,
+        autoMergeVideo: true,
+        useLiveCover: false,
+        limitUploadTime: false,
+        uploadHandleTime: ["00:00:00", "23:59:59"],
+        partTitleTemplate: "{{filename}}",
+        afterUploadDeletAction: "none",
+        title: "Test {{user}}",
+      });
+
+      const addUploadTaskSpy = vi.spyOn(webhookHandler, "addUploadTask").mockResolvedValue(456);
+
+      await webhookHandler.handleLive(live);
+
+      // 因为还有 Part 未完全处理，不应执行上传
+      expect(addUploadTaskSpy).not.toHaveBeenCalled();
+      expect(videoTask.mergeVideos).not.toHaveBeenCalled();
+      expect(live.parts[0].uploadStatus).toBe("pending");
+    });
+
+    it("autoMergeVideo 合并后标题不包含-合并后缀", async () => {
+      const appConfig = {
+        getAll: vi.fn().mockReturnValue({
+          task: { ffmpegMaxNum: -1, douyuDownloadMaxNum: -1, biliUploadMaxNum: -1 },
+        }),
+      };
+      // @ts-ignore
+      webhookHandler = new WebhookHandler(appConfig);
+
+      const live = new Live({
+        platform: "bili-recorder",
+        roomId: "123",
+        startTime: new Date("2022-01-01T00:00:00Z").getTime(),
+        title: "Test",
+        username: "user",
+      });
+      live.addPart({
+        startTime: new Date("2022-01-01T00:00:00Z").getTime(),
+        filePath: "/path/to/video1.mp4",
+        recordStatus: "handled",
+        uploadStatus: "pending",
+        title: "Part 1",
+      });
+      live.addPart({
+        startTime: new Date("2022-01-01T00:30:00Z").getTime(),
+        filePath: "/path/to/video2.mp4",
+        recordStatus: "handled",
+        uploadStatus: "pending",
+        title: "Part 2",
+      });
+
+      const mockTask = createMockMergeTask("/path/to/video1-合并.mp4");
+      // @ts-ignore
+      vi.mocked(videoTask.mergeVideos).mockResolvedValue({
+        status: "success",
+        text: "添加到任务队列",
+        taskId: mockTask.taskId,
+        task: mockTask,
+      });
+      vi.mocked(videoTask.checkMergeVideos).mockResolvedValue({
+        errors: [],
+        warnings: [],
+      });
+
+      // @ts-ignore
+      vi.spyOn(webhookHandler.configManager, "getConfig").mockReturnValue({
+        uid: 123,
+        uploadPresetId: "preset-1",
+        uploadNoDanmu: false,
+        autoMergeVideo: true,
+        useLiveCover: false,
+        limitUploadTime: false,
+        uploadHandleTime: ["00:00:00", "23:59:59"],
+        partTitleTemplate: "{{filename}}",
+        afterUploadDeletAction: "none",
+        title: "Test {{user}}",
+      });
+
+      // @ts-ignore
+      webhookHandler.videoPreset.get = vi.fn().mockResolvedValue({
+        config: { title: "Preset {{title}}" },
+      });
+      const addUploadTaskSpy = vi.spyOn(webhookHandler, "addUploadTask").mockResolvedValue(456);
+
+      await webhookHandler.handleLive(live);
+
+      expect(addUploadTaskSpy).toHaveBeenCalledTimes(1);
+      // 验证上传时使用的 title 不含 "-合并"
+      const callArgs = addUploadTaskSpy.mock.calls[0];
+      const uploadedItems = callArgs[1];
+      expect(uploadedItems[0].title).not.toContain("-合并");
+      expect(uploadedItems[0].title).toContain("video1");
+    });
   });
 });
 

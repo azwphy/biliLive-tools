@@ -291,7 +291,7 @@ async function checkFileInterval() {
   setInterval(async () => {
     for (let i = 0; i < handler.liveData.length; i++) {
       const live = handler.liveData[i];
-      handler.handleLive(live);
+      await handler.handleLive(live);
     }
   }, 1000 * 60);
 }
